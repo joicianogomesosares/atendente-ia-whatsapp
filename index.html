@@ -1,0 +1,253 @@
+<!-- ShopFlow — vitrine e-commerce (demo freelancer). Estrutura semantica pura;
+     todo comportamento vem de js/produtos.js, js/carrinho.js e js/loja.js. -->
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="ShopFlow — loja demo de tecnologia e gadgets. Vitrine de portfolio freelancer: interface conversa, o codigo decide.">
+<title>ShopFlow — Tecnologia e Gadgets</title>
+<link rel="stylesheet" href="css/estilo.css">
+
+<!-- ===================== CABECALHO STICKY ===================== -->
+<header class="cabecalho" role="banner">
+  <div class="cabecalho-conteudo">
+    <a class="logo" href="#" aria-label="ShopFlow — pagina inicial">
+      <span class="logo-marca">Shop</span><span class="logo-destaque">Flow</span>
+    </a>
+
+    <!-- Busca tolerante a erro de digitacao (logica em loja.js) -->
+    <div class="busca-caixa" role="search">
+      <label class="sr-apenas" for="busca">Buscar produtos</label>
+      <svg class="busca-icone" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"></circle>
+        <line x1="16.5" y1="16.5" x2="21" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line>
+      </svg>
+      <input type="text" id="busca" class="busca-input"
+             placeholder="Buscar por nome, categoria ou tag..."
+             autocomplete="off" aria-label="Buscar produtos">
+    </div>
+
+    <div class="cabecalho-acoes">
+      <!-- Ordenacao do catalogo -->
+      <label class="sr-apenas" for="ordenar">Ordenar produtos</label>
+      <select id="ordenar" class="ordenar-select" aria-label="Ordenar produtos">
+        <option value="relevancia">Relevância</option>
+        <option value="menor-preco">Menor preço</option>
+        <option value="maior-preco">Maior preço</option>
+        <option value="avaliacao">Melhor avaliação</option>
+        <option value="nome">Nome (A–Z)</option>
+      </select>
+
+      <!-- Alternador de tema (claro/escuro) — gerenciado por carrinho.js -->
+      <button type="button" id="toggle-tema" class="botao-icone" aria-label="Alternar tema claro/escuro" title="Alternar tema">
+        <svg class="icone-sol" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <circle cx="12" cy="12" r="5" fill="none" stroke="currentColor" stroke-width="2"></circle>
+          <g stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <line x1="12" y1="1.5" x2="12" y2="4"></line>
+            <line x1="12" y1="20" x2="12" y2="22.5"></line>
+            <line x1="1.5" y1="12" x2="4" y2="12"></line>
+            <line x1="20" y1="12" x2="22.5" y2="12"></line>
+            <line x1="4.2" y1="4.2" x2="6" y2="6"></line>
+            <line x1="18" y1="18" x2="19.8" y2="19.8"></line>
+            <line x1="4.2" y1="19.8" x2="6" y2="18"></line>
+            <line x1="18" y1="6" x2="19.8" y2="4.2"></line>
+          </g>
+        </svg>
+        <svg class="icone-lua" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M20 14.5A8 8 0 0 1 9.5 4a7 7 0 1 0 10.5 10.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>
+        </svg>
+      </button>
+
+      <!-- Abrir carrinho + badge de contagem -->
+      <button type="button" id="btn-abrir-carrinho" class="botao-icone botao-carrinho" aria-label="Abrir carrinho">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M3 4h2l2.4 12.2a1.5 1.5 0 0 0 1.5 1.2h8.6a1.5 1.5 0 0 0 1.5-1.2L21 8H6.2"
+                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+          <circle cx="9.5" cy="20.5" r="1.5" fill="currentColor"></circle>
+          <circle cx="17.5" cy="20.5" r="1.5" fill="currentColor"></circle>
+        </svg>
+        <span id="contador-carrinho" class="contador-carrinho" aria-live="polite">0</span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<!-- ===================== CORPO PRINCIPAL ===================== -->
+<div class="pagina">
+
+  <!-- Faixa de destaque / hero de venda -->
+  <section class="hero" aria-label="Destaque">
+    <div class="hero-conteudo">
+      <p class="hero-tag">Vitrine demo · vanilla JS</p>
+      <h1 class="hero-titulo">A interface conversa, o código decide.</h1>
+      <p class="hero-sub">
+        Tecnologia e gadgets com busca que perdoa erros de digitação e carrinho
+        determinístico. Sem framework, sem rede — funciona offline.
+      </p>
+    </div>
+  </section>
+
+  <div class="layout">
+
+    <!-- Barra lateral de filtros -->
+    <aside class="sidebar" aria-label="Filtros de produtos">
+      <div class="sidebar-bloco">
+        <h2 class="sidebar-titulo">Categorias</h2>
+        <!-- Preenchido por loja.js: checkboxes/botoes por categoria -->
+        <div id="filtros-categoria" class="filtros-categoria"></div>
+      </div>
+
+      <div class="sidebar-bloco">
+        <h2 class="sidebar-titulo">Preço máximo</h2>
+        <label class="sr-apenas" for="filtro-preco">Preço máximo</label>
+        <input type="range" id="filtro-preco" class="filtro-preco"
+               min="0" max="1000" step="10" value="1000"
+               aria-label="Preço máximo">
+        <span id="rotulo-preco" class="rotulo-preco" aria-live="polite">Até R$ 1.000,00</span>
+      </div>
+    </aside>
+
+    <!-- Grade de produtos -->
+    <main class="conteudo" role="main">
+      <div class="conteudo-topo">
+        <span id="contagem-resultados" class="contagem-resultados" aria-live="polite">Carregando produtos…</span>
+      </div>
+
+      <!-- Cards gerados por loja.js (classe .card-produto, data-id) -->
+      <section id="grade-produtos" class="grade-produtos" aria-label="Produtos"></section>
+    </main>
+  </div>
+</div>
+
+<!-- ===================== DRAWER DO CARRINHO ===================== -->
+<!-- Overlay para escurecer o fundo quando o drawer/modal abrem -->
+<div id="overlay" class="overlay" hidden></div>
+
+<aside id="drawer-carrinho" class="drawer-carrinho" role="dialog" aria-modal="true"
+       aria-labelledby="drawer-titulo" aria-hidden="true">
+
+  <header class="drawer-cabecalho">
+    <h2 id="drawer-titulo" class="drawer-titulo">Seu carrinho</h2>
+    <button type="button" id="fechar-carrinho" class="botao-icone" aria-label="Fechar carrinho">
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line>
+        <line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line>
+      </svg>
+    </button>
+  </header>
+
+  <!-- Corpo rolavel do drawer -->
+  <div class="drawer-corpo">
+
+    <!-- ETAPA 1: itens do carrinho -->
+    <div id="itens-carrinho" class="itens-carrinho">
+      <!-- Itens injetados por carrinho.js -->
+    </div>
+
+    <!-- Cupom de desconto -->
+    <div class="cupom-caixa">
+      <label class="sr-apenas" for="input-cupom">Código do cupom</label>
+      <input type="text" id="input-cupom" class="input-cupom"
+             placeholder="Cupom (ex: BEMVINDO10)" autocomplete="off"
+             aria-label="Código do cupom">
+      <button type="button" id="btn-cupom" class="botao-secundario">Aplicar</button>
+    </div>
+
+    <!-- Resumo: subtotal / frete / desconto / total (calculado em carrinho.js) -->
+    <div id="resumo-carrinho" class="resumo-carrinho" aria-live="polite">
+      <!-- Linhas de resumo injetadas por carrinho.js -->
+    </div>
+
+    <button type="button" id="btn-checkout" class="botao-primario botao-bloco">
+      Finalizar compra
+    </button>
+
+    <!-- ETAPA 2: formulario de checkout (exibido por carrinho.js) -->
+    <form id="form-checkout" class="form-checkout" novalidate hidden>
+      <h3 class="form-titulo">Dados de entrega</h3>
+
+      <div class="campo">
+        <label for="checkout-nome">Nome completo</label>
+        <input type="text" id="checkout-nome" name="nome" autocomplete="name" required>
+      </div>
+
+      <div class="campo">
+        <label for="checkout-email">E-mail</label>
+        <input type="email" id="checkout-email" name="email" autocomplete="email" required>
+      </div>
+
+      <div class="campo-linha">
+        <div class="campo">
+          <label for="checkout-cep">CEP</label>
+          <input type="text" id="checkout-cep" name="cep" inputmode="numeric"
+                 autocomplete="postal-code" placeholder="00000-000" required>
+        </div>
+        <div class="campo campo-cresce">
+          <label for="checkout-endereco">Endereço</label>
+          <input type="text" id="checkout-endereco" name="endereco"
+                 autocomplete="street-address" placeholder="Rua, número, bairro" required>
+        </div>
+      </div>
+
+      <fieldset class="campo campo-pagamento">
+        <legend>Forma de pagamento</legend>
+        <label class="opcao-radio">
+          <input type="radio" name="pagamento" value="pix" checked>
+          <span>Pix</span>
+        </label>
+        <label class="opcao-radio">
+          <input type="radio" name="pagamento" value="cartao">
+          <span>Cartão de crédito</span>
+        </label>
+        <label class="opcao-radio">
+          <input type="radio" name="pagamento" value="boleto">
+          <span>Boleto</span>
+        </label>
+      </fieldset>
+
+      <button type="submit" class="botao-primario botao-bloco">Confirmar pedido</button>
+    </form>
+
+    <!-- ETAPA 3: confirmacao (revelada por carrinho.js apos finalizar) -->
+    <div id="tela-confirmacao" class="tela-confirmacao" role="status" aria-live="polite" hidden>
+      <!-- Numero do pedido e mensagem injetados por carrinho.js -->
+    </div>
+  </div>
+</aside>
+
+<!-- ===================== MODAL DE PRODUTO ===================== -->
+<div id="modal-produto" class="modal-produto" role="dialog" aria-modal="true"
+     aria-labelledby="modal-titulo" aria-hidden="true" hidden>
+  <div class="modal-caixa">
+    <button type="button" id="fechar-modal" class="botao-icone modal-fechar" aria-label="Fechar detalhes do produto">
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line>
+        <line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line>
+      </svg>
+    </button>
+    <!-- Conteudo do produto (imagem SVG, specs, recomendados) injetado por loja.js -->
+    <div id="modal-conteudo" class="modal-conteudo">
+      <h2 id="modal-titulo" class="sr-apenas">Detalhes do produto</h2>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== RODAPE ===================== -->
+<footer class="rodape" role="contentinfo">
+  <div class="rodape-conteudo">
+    <div class="rodape-marca">
+      <span class="logo-marca">Shop</span><span class="logo-destaque">Flow</span>
+      <p class="rodape-nota">Loja demonstrativa. Nenhuma compra é real e nenhum dado é enviado a servidores.</p>
+    </div>
+    <nav class="rodape-links" aria-label="Rodapé">
+      <a href="#">Sobre</a>
+      <a href="#">Entrega</a>
+      <a href="#">Trocas</a>
+      <a href="#">Contato</a>
+    </nav>
+    <p class="rodape-copy">© 2026 ShopFlow · Projeto de portfólio · Vanilla HTML/CSS/JS</p>
+  </div>
+</footer>
+
+<!-- Scripts na ordem do contrato: dados -> carrinho -> loja -->
+<script src="js/produtos.js"></script>
+<script src="js/carrinho.js"></script>
+<script src="js/loja.js"></script>

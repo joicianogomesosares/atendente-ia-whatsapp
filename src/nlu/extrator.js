@@ -36,6 +36,13 @@ const VERBOS_REMOVER = ['tira', 'tirar', 'tire', 'remove', 'remover', 'remova', 
 const VERBOS_TROCAR = ['troca', 'trocar', 'troque', 'muda', 'mudar', 'substitui', 'substituir'];
 const VERBOS_LIMPAR_TUDO = ['tudo', 'geral', 'pedido todo', 'do zero'];
 
+// Verbos que DEFINEM a quantidade absoluta (não somam nem removem): "deixa 1
+// calabresa", "faz 2 margherita", "só 1". Distinguem-se de "quero/adiciona"
+// (soma) e de "tira/remove" (subtrai). "muda/passa PARA N" também define — e
+// não é troca (troca é "muda X POR Y").
+const VERBOS_DEFINIR = ['deixa', 'deixe', 'faz', 'faca', 'faze', 'fica', 'ajusta', 'ajuste'];
+const MARCADORES_SO = ['so', 'apenas', 'somente'];
+
 // Ingredientes ≠ itens do cardápio: "sem cebola" é observação para a cozinha,
 // não remoção de item do carrinho.
 const INGREDIENTES = ['cebola', 'azeitona', 'alho', 'queijo', 'tomate', 'manjericao', 'catupiry', 'gorgonzola', 'parmesao', 'mussarela', 'oregano', 'borda'];
@@ -111,6 +118,43 @@ function negacaoAntes(tokens, span, janela = 4) {
   return false;
 }
 
+/**
+ * O cliente quer DEFINIR a quantidade absoluta deste item (não somar)?
+ * Cobre "deixa 1 X", "faz 2 X", "só 1 X", "muda/passa para N X" e "X para N".
+ * NÃO confunde com troca: "muda X POR Y" usa "por", não "para".
+ */
+function definirQtdIntencao(tokens, span, janela = 4) {
+  const antes = tokens.slice(Math.max(0, span.inicio - janela), span.inicio);
+  if (antes.some((t) => MARCADORES_SO.includes(t))) return true;
+  if (antes.some((t) => VERBOS_DEFINIR.includes(t))) return true;
+
+  // "muda/passa PARA N" antes do item: "muda para 2 calabresa".
+  const jAntes = antes.join(' ');
+  if (/\b(passa|passe|passar|muda|mudar|mude)\s+(para|pra|pro|pa)\b/.test(jAntes)) return true;
+
+  // "... para N" logo depois do item, com verbo de ajuste antes: "muda a
+  // calabresa para 2". Só conta se há um verbo de ajuste na frase antes do item.
+  const depois = tokens.slice(span.fim + 1, span.fim + 1 + janela).join(' ');
+  const verboAjusteAntes = tokens
+    .slice(0, span.inicio)
+    .some((t) => ['passa', 'passar', 'muda', 'mudar', 'mude', 'deixa', 'deixe'].includes(t));
+  if (verboAjusteAntes && /\b(para|pra|pro)\s+(\d+|um|uma|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez)\b/.test(depois)) {
+    return true;
+  }
+  return false;
+}
+
+/** Número que aparece logo DEPOIS do item ("calabresa para 2"), ou null. */
+function qtdAposItem(tokens, span, janela = 4) {
+  const depois = tokens.slice(span.fim + 1, span.fim + 1 + janela);
+  for (const bruto of depois) {
+    const t = bruto.replace(/x$/, '');
+    if (/^\d+$/.test(t)) return Number(t);
+    if (NUMEROS[t] !== undefined && t !== 'meia') return NUMEROS[t];
+  }
+  return null;
+}
+
 /** Idiom "deixa {item} pra la" = desistir do item (verbo + "pra la" em volta). */
 function deixaPraLa(tokens, span) {
   const antes = tokens.slice(Math.max(0, span.inicio - 3), span.inicio);
@@ -182,6 +226,15 @@ export function extrairOperacoes(texto, { itensNoCarrinho = [] } = {}) {
 
   for (const span of spansValidos) {
     if (span.id === null) {
+      // "passa"/"muda" casam por typo-tolerância com o genérico "massa". Quando
+      // vêm seguidos de "para/pra" é o verbo de ajuste ("passa para 2 X"), não
+      // um pedido de massa — não gera ambiguidade nem pendência falsa.
+      const tokenGen = tokens[span.inicio];
+      const seguinte = tokens[span.fim + 1];
+      if (['passa', 'passe', 'passar', 'muda', 'mudar', 'mude'].includes(tokenGen)
+          && ['para', 'pra', 'pro'].includes(seguinte)) {
+        continue;
+      }
       // Genérico: só é ambiguidade real se for pedido de adição.
       if (!verboAntes(tokens, span, VERBOS_REMOVER) && !negacaoAntes(tokens, span)) {
         ambiguidades.push({ ambiguoEntre: span.ambiguoEntre });
@@ -198,11 +251,23 @@ export function extrairOperacoes(texto, { itensNoCarrinho = [] } = {}) {
     const trocar = verboAntes(tokens, span, VERBOS_TROCAR);
     const qtdExplicita = quantidadePara(tokens, span, usadosPorItem);
 
+    // Define ANTES de trocar: "muda para 2 X" é ajuste de quantidade, não troca.
+    const definir = !remover && definirQtdIntencao(tokens, span);
+    const qtdDefinir = definir ? (qtdExplicita ?? qtdAposItem(tokens, span)) : null;
+
     if (remover) {
       // "deixa a calabresa pra lá" com carrinho vazio = só não adiciona.
       if (itensNoCarrinho.includes(span.id)) {
         operacoes.push({ tipo: 'remover', id: span.id, quantidade: qtdExplicita });
       }
+    } else if (definir && qtdDefinir != null) {
+      // Item já no carrinho: define a quantidade absoluta. Fora do carrinho:
+      // definir uma linha inexistente equivale a adicioná-la com essa quantidade.
+      operacoes.push({
+        tipo: itensNoCarrinho.includes(span.id) ? 'definir_qtd' : 'adicionar',
+        id: span.id,
+        quantidade: qtdDefinir,
+      });
     } else if (trocar && itensNoCarrinho.includes(span.id)) {
       operacoes.push({ tipo: 'remover', id: span.id, quantidade: null });
     } else if (!soConsulta) {
@@ -213,11 +278,20 @@ export function extrairOperacoes(texto, { itensNoCarrinho = [] } = {}) {
   // "troca a margherita por calabresa": remover + adicionar já saem acima
   // (margherita com verbo trocar e no carrinho → remove; calabresa → adiciona).
 
-  // "deixa so 2" sem citar item: ajuste de quantidade contextual.
-  if (operacoes.length === 0 && spansValidos.length === 0) {
-    const m = textoPrep.match(/\b(?:so|apenas|somente|deixa so|para|pra)\s+(\d+|um|uma|dois|duas|tres|quatro|cinco)\b/);
-    const pedeAjuste = /\b(so|apenas|somente|muda|corrige|diminui|aumenta|deixa)\b/.test(textoPrep);
-    if (m && pedeAjuste && itensNoCarrinho.length === 1) {
+  // "deixa so 2", "no total 2", "2 no total", "passa para 2" sem citar item:
+  // ajuste de quantidade contextual. Só faz sentido com UM item no carrinho —
+  // com vários, não dá pra saber qual ajustar.
+  if (operacoes.length === 0 && spansValidos.length === 0 && itensNoCarrinho.length === 1) {
+    const NUM = '(\\d+|um|uma|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez)';
+    // Marcador ANTES do número: "no total 2", "passa para 2", "só 2", "fica em 3".
+    const reAntes = new RegExp(
+      `\\b(?:no total|total de|total|ao todo|fica em|fica|deixa em|deixa|passa (?:para|pra)|muda (?:para|pra)|passa|muda|so|apenas|somente|para|pra)\\s+${NUM}\\b`
+    );
+    // Número ANTES do marcador: "2 no total", "2 ao todo".
+    const rePos = new RegExp(`\\b${NUM}\\s+(?:no total|ao todo|no final)\\b`);
+    const pedeAjuste = /\b(so|apenas|somente|muda|corrige|diminui|aumenta|deixa|no total|total|fica|passa|ao todo)\b/.test(textoPrep);
+    const m = textoPrep.match(reAntes) || textoPrep.match(rePos);
+    if (m && pedeAjuste) {
       const qtd = /^\d+$/.test(m[1]) ? Number(m[1]) : NUMEROS[m[1]];
       if (qtd) operacoes.push({ tipo: 'definir_qtd', id: itensNoCarrinho[0], quantidade: qtd });
     }
@@ -233,9 +307,22 @@ export function precoDoItem(id) {
   return { nome: item.nome, preco: item.preco, texto: `R$ ${item.preco.toFixed(2).replace('.', ',')}` };
 }
 
+/**
+ * Remove interjeições iniciais ("eh", "é", "olha", "ah"...) que o cliente digita
+ * antes do endereço e que não fazem parte do logradouro. Aplica duas vezes para
+ * pegar "eh olha rua...". Não remove "o"/"a" para não comer início de endereço.
+ */
+function descartarInterjeicoesIniciais(texto) {
+  const re = /^(?:eh|é|e|ah|ah|ha|opa|olha|olhe|entao|então|hmm+|entaum|ó|uai|entam)\b[\s,.:-]*/i;
+  let t = texto.trim();
+  t = t.replace(re, '').trim();
+  t = t.replace(re, '').trim();
+  return t;
+}
+
 /** Endereço: rua/av + número, ou frase introduzida por "endereço é". */
 export function extrairEndereco(textoOriginal) {
-  const t = textoOriginal.trim();
+  const t = descartarInterjeicoesIniciais(textoOriginal);
   const re = /\b(rua|r\.|av\.?|avenida|travessa|alameda|rodovia|estrada)\s+[^,]{2,50}?,?\s*(n[º°o.]?\s*)?\d+/i;
   const m = t.match(re);
   if (m) return t; // devolve o texto completo: complemento importa para o entregador

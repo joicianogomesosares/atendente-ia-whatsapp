@@ -155,6 +155,22 @@ export function conduzir({ sessaoId, texto, modelo, pedido }) {
 
   const mexeuNoCarrinho = operacoes.length > 0 || observacoes.length > 0 || ambiguidades.length > 0;
 
+  // ---- 2c. Endereço pendente tem PRIORIDADE sobre a classificação de intenção.
+  //          Se já é entrega e falta o endereço, um texto de endereço deve ser
+  //          SALVO — mesmo que contenha uma palavra que também aparece na FAQ
+  //          ("rua Aurora" bate na FAQ do endereço do restaurante). Sem esta
+  //          precedência, "rua Aurora 200" respondia o endereço DA CANTINA em
+  //          vez de anotar o endereço do cliente.
+  if (pedido.modalidade === 'entrega' && !pedido.endereco && !mexeuNoCarrinho && !mexeuNoEstado) {
+    const endereco = extrairEndereco(texto);
+    if (endereco) {
+      acoes.push({ tipo: 'modalidade', valor: 'entrega', endereco });
+      partes.push(variar(sessaoId, 'endereco_anotado', { endereco }));
+      memoria.fallbacksSeguidos = 0;
+      return montarSaida(partes, acoes, false);
+    }
+  }
+
   // ---- 3. Intenção da parte "conversacional"
   let intencao = null;
   let confianca = 0;
