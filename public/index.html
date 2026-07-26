@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Atendente Virtual — Demonstração</title>
+  <link rel="stylesheet" href="estilo.css" />
+</head>
+<body>
+  <div class="palco">
+
+    <!-- Telefone -->
+    <div class="telefone">
+      <header class="topo">
+        <div class="voltar">‹</div>
+        <div class="avatar" id="avatar">CM</div>
+        <div class="identidade">
+          <strong id="nomeEstabelecimento">Carregando...</strong>
+          <span id="statusLinha">online</span>
+        </div>
+        <button class="reiniciar" id="btnReiniciar" title="Reiniciar conversa">↻</button>
+      </header>
+
+      <main class="conversa" id="conversa">
+        <div class="aviso-data"><span>HOJE</span></div>
+      </main>
+
+      <form class="barra" id="formulario">
+        <input
+          id="entrada"
+          type="text"
+          placeholder="Mensagem"
+          autocomplete="off"
+          maxlength="500" />
+        <button type="submit" aria-label="Enviar">➤</button>
+      </form>
+    </div>
+
+    <!-- Painel do dono do restaurante -->
+    <aside class="painel">
+      <div class="painel-topo">
+        <h2>Painel da cozinha</h2>
+        <span class="selo" id="seloModo">—</span>
+      </div>
+
+      <p class="painel-legenda">
+        O que o robô está montando, em tempo real. É esta tela que você mostra
+        para o dono do restaurante.
+      </p>
+
+      <section class="bloco">
+        <h3>Pedido</h3>
+        <ul id="listaItens" class="itens"><li class="vazio">Nenhum item ainda</li></ul>
+      </section>
+
+      <section class="bloco">
+        <h3>Totais</h3>
+        <div class="linha"><span>Subtotal</span><strong id="subtotal">R$ 0,00</strong></div>
+        <div class="linha"><span>Entrega</span><strong id="taxa">R$ 0,00</strong></div>
+        <div class="linha total"><span>Total</span><strong id="total">R$ 0,00</strong></div>
+      </section>
+
+      <section class="bloco">
+        <h3>Status</h3>
+        <div class="linha"><span>Modalidade</span><strong id="modalidade">—</strong></div>
+        <div class="linha"><span>Pagamento</span><strong id="pagamento">—</strong></div>
+        <div class="linha"><span>Falta</span><strong id="pendencias">—</strong></div>
+      </section>
+
+      <div class="sugestoes">
+        <h3>Experimente digitar</h3>
+        <button data-frase="Oi, boa noite!">Oi, boa noite!</button>
+        <button data-frase="Me manda o cardápio">Me manda o cardápio</button>
+        <button data-frase="Quero 2 pizza calabresa">Quero 2 pizza calabresa</button>
+        <button data-frase="Vou querer um tiramisù também">E um tiramisù</button>
+        <button data-frase="É para retirada">É para retirada</button>
+        <button data-frase="Vou pagar no pix">Vou pagar no pix</button>
+        <button data-frase="Pode fechar o pedido">Pode fechar</button>
+        <button data-frase="Quero falar com um atendente">Falar com atendente</button>
+      </div>
+    </aside>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
