@@ -17,11 +17,44 @@ export function obterPedido(sessaoId) {
       modalidade: null, // 'entrega' | 'retirada'
       endereco: null,
       pagamento: null,
+      observacoes: [], // recados para a cozinha ("sem cebola")
+      congelado: false, // true durante escalonamento de segurança
       finalizado: false,
       criadoEm: new Date().toISOString(),
     });
   }
   return pedidos.get(sessaoId);
+}
+
+/** Congela o pedido: nenhuma mutação até um humano assumir. */
+export function congelarPedido(sessaoId) {
+  obterPedido(sessaoId).congelado = true;
+}
+
+export function limparItens(sessaoId) {
+  const pedido = obterPedido(sessaoId);
+  pedido.itens = [];
+  pedido.observacoes = [];
+  return { ok: true };
+}
+
+export function definirQuantidade(sessaoId, termo, quantidade) {
+  const item = buscarItem(termo);
+  if (!item) return { ok: false, motivo: `Não encontrei "${termo}" no pedido.` };
+
+  const pedido = obterPedido(sessaoId);
+  const existente = pedido.itens.find((i) => i.id === item.id);
+  if (!existente) return { ok: false, motivo: `${item.nome} não estava no pedido.` };
+
+  const qtd = Number.isFinite(quantidade) && quantidade > 0 ? Math.floor(quantidade) : 1;
+  existente.quantidade = qtd;
+  return { ok: true, item: item.nome, quantidade: qtd };
+}
+
+export function adicionarObservacao(sessaoId, texto) {
+  const pedido = obterPedido(sessaoId);
+  if (!pedido.observacoes.includes(texto)) pedido.observacoes.push(texto);
+  return { ok: true };
 }
 
 export function adicionarItem(sessaoId, termo, quantidade = 1) {
@@ -38,17 +71,26 @@ export function adicionarItem(sessaoId, termo, quantidade = 1) {
   return { ok: true, item: item.nome, quantidade: qtd };
 }
 
-export function removerItem(sessaoId, termo) {
+/**
+ * Remove item do pedido. Se `quantidade` for um número, DECREMENTA essa
+ * quantidade (e só apaga a linha se zerar); se for null/undefined, apaga a
+ * linha inteira. É a diferença entre "tira 1 margherita" e "tira a margherita".
+ */
+export function removerItem(sessaoId, termo, quantidade = null) {
   const item = buscarItem(termo);
   if (!item) return { ok: false, motivo: `Não encontrei "${termo}" no pedido.` };
 
   const pedido = obterPedido(sessaoId);
-  const antes = pedido.itens.length;
-  pedido.itens = pedido.itens.filter((i) => i.id !== item.id);
+  const existente = pedido.itens.find((i) => i.id === item.id);
+  if (!existente) return { ok: false, motivo: `${item.nome} não estava no pedido.` };
 
-  return pedido.itens.length < antes
-    ? { ok: true, item: item.nome }
-    : { ok: false, motivo: `${item.nome} não estava no pedido.` };
+  if (Number.isFinite(quantidade) && quantidade > 0 && quantidade < existente.quantidade) {
+    existente.quantidade -= quantidade;
+    return { ok: true, item: item.nome, restante: existente.quantidade };
+  }
+
+  pedido.itens = pedido.itens.filter((i) => i.id !== item.id);
+  return { ok: true, item: item.nome, restante: 0 };
 }
 
 export function definirModalidade(sessaoId, modalidade, endereco = null) {
@@ -107,12 +149,16 @@ export function resumoPedido(pedido) {
   }
 
   if (pedido.pagamento) partes.push(`Pagamento: ${pedido.pagamento}`);
+  if (pedido.observacoes.length) partes.push(`Observações: ${pedido.observacoes.join('; ')}`);
 
   return partes.join('\n');
 }
 
 export function finalizarPedido(sessaoId) {
   const pedido = obterPedido(sessaoId);
+  if (pedido.congelado) {
+    return { ok: false, faltando: ['um atendente confirmar os ingredientes com você'] };
+  }
   const faltando = pendencias(pedido);
   if (faltando.length > 0) return { ok: false, faltando };
 

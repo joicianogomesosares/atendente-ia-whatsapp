@@ -1,89 +1,106 @@
 // Escalonamento para atendente humano.
 //
 // Este é o módulo que separa um chatbot que o cliente ama de um que ele odeia.
-// Todo mundo já ficou preso num robô que não entende e não passa para ninguém.
-// A regra aqui define exatamente quando o robô admite que não dá conta.
+// A regra de projeto: TODO caminho sem saída termina num humano, nunca num
+// robô repetindo a mesma frase. Três gatilhos, em ordem de urgência:
+//
+//   1. SEGURANÇA (alergia, passou mal) — escala na hora E congela o pedido.
+//      O custo de um falso positivo é um pedido atrasado; o custo de um falso
+//      negativo é alguém no hospital. Não há trade-off a discutir.
+//   2. Pedido explícito de humano / assunto sensível — escala na hora.
+//      Cliente que pediu gente e recebeu robô já está contando até dez.
+//   3. Robô travado — 2 fallbacks seguidos escalam. Não 3: a terceira
+//      repetição é exatamente o que denuncia a máquina.
+//
+// Fora do horário não existe humano para receber. Decisão: escalar mesmo
+// assim e ser honesto sobre o prazo — segurar o cliente no robô para "não
+// perder pedido" é o tipo de esperteza que vira avaliação de 1 estrela.
+
+import { preparar, tokenizar, tokenParece } from './nlu/normalizador.js';
 
 /** Palavras que sinalizam pedido explícito de humano. */
 export const PEDIDOS_DE_HUMANO = [
-  'atendente', 'humano', 'pessoa', 'gerente', 'responsavel', 'responsável',
-  'falar com alguem', 'falar com alguém', 'nao e robo', 'não é robô',
+  'atendente', 'humano', 'gerente', 'responsavel',
+  'falar com alguem', 'falar com uma pessoa', 'pessoa de verdade',
+  'atendimento humano', 'me liga', 'quero gente',
 ];
 
 /** Assuntos que o robô não tem autoridade para resolver sozinho. */
 export const ASSUNTOS_SENSIVEIS = [
-  'reclamacao', 'reclamação', 'reembolso', 'estorno', 'cancelar pedido',
-  'veio errado', 'veio frio', 'passou mal', 'alergia', 'intoxicacao',
-  'intoxicação', 'processo', 'procon', 'advogado',
+  'reclamacao', 'reembolso', 'estorno', 'dinheiro de volta', 'cancelar pedido',
+  'veio errado', 'veio frio', 'chegou frio', 'chegou errado', 'veio faltando',
+  'atrasado', 'atrasou', 'cade meu pedido', 'onde esta meu pedido',
+  'demorando muito', 'ja faz', 'procon', 'advogado', 'processo', 'reclame aqui',
+  'absurdo', 'pessimo', 'horrivel', 'nunca mais', 'descaso',
 ];
 
+/** Segurança: qualquer menção escala e congela o pedido. */
+export const SEGURANCA = [
+  'alergia', 'alergico', 'alergica', 'intolerancia', 'intolerante',
+  'passei mal', 'passou mal', 'passando mal', 'intoxicacao', 'intoxicado',
+  'hospital', 'anafilaxia', 'reacao alergica', 'celiaco', 'celiaca',
+];
+
+const PALAVROES = ['merda', 'porra', 'caralho', 'bosta', 'lixo', 'palhacada', 'incompetente'];
+
 export function normalizar(texto) {
-  return (texto ?? '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '');
+  return preparar(texto);
 }
 
+/** O texto contém algum termo da lista (com tolerância a typo em palavra única)? */
 export function contemAlgum(texto, lista) {
-  const t = normalizar(texto);
-  return lista.some((termo) => t.includes(normalizar(termo)));
+  const t = preparar(texto);
+  const tokens = tokenizar(texto);
+  return lista.some((termo) => {
+    if (termo.includes(' ')) return t.includes(termo);
+    return tokens.some((tok) => tokenParece(tok, termo));
+  });
 }
 
 /**
  * Decide se a conversa deve sair do robô e ir para um humano.
  *
- * @param {object} contexto
- * @param {string} contexto.mensagem        - a última mensagem do cliente
- * @param {number} contexto.tentativasSemEntender - quantas vezes seguidas o
- *                                            agente não entendeu o cliente
- * @param {number} contexto.totalMensagens  - tamanho da conversa até agora
- * @param {boolean} contexto.dentroDoHorario - se o restaurante está aberto
- * @param {object} contexto.pedido          - estado atual do pedido
- *
- * @returns {{escalar: boolean, motivo: string|null, mensagem: string|null}}
+ * @returns {{escalar: boolean, motivo: string|null, mensagem: string|null,
+ *            congelarPedido?: boolean}}
  */
-export function avaliarEscalonamento(contexto) {
-  // ┌───────────────────────────────────────────────────────────────────┐
-  // │ TODO — SUA DECISÃO DE NEGÓCIO                                     │
-  // │                                                                   │
-  // │ Implemente aqui a regra de escalonamento. São ~8 linhas.          │
-  // │                                                                   │
-  // │ Os casos óbvios (já tem os helpers prontos acima):                │
-  // │   • cliente pediu humano explicitamente → PEDIDOS_DE_HUMANO       │
-  // │   • assunto sensível → ASSUNTOS_SENSIVEIS                         │
-  // │   • agente travou → contexto.tentativasSemEntender                │
-  // │                                                                   │
-  // │ O TRADE-OFF REAL, e é você quem decide:                           │
-  // │                                                                   │
-  // │ Escalar cedo demais → o dono do restaurante recebe notificação a  │
-  // │ toda hora, se irrita, e cancela a mensalidade no segundo mês.     │
-  // │ Você perde a recorrência, que é onde está seu dinheiro.           │
-  // │                                                                   │
-  // │ Escalar tarde demais → cliente furioso preso no robô às 22h.      │
-  // │ Uma avaliação ruim no Google e o dono culpa a sua automação.      │
-  // │                                                                   │
-  // │ E FORA DO HORÁRIO? Não existe humano para receber. Você:          │
-  // │   (a) escala mesmo assim e avisa que respondem amanhã             │
-  // │   (b) não escala e tenta resolver, deixando recado na fila        │
-  // │ A (a) é honesta. A (b) segura mais pedido. Sua chamada.           │
-  // │                                                                   │
-  // │ Sugestão de limiar para começar: 3 tentativas sem entender.       │
-  // └───────────────────────────────────────────────────────────────────┘
+export function avaliarEscalonamento({ mensagem, tentativasSemEntender = 0 }) {
+  // 1. Segurança primeiro. Congela o pedido: o bug histórico deste projeto
+  //    foi adicionar Quatro Queijos ao carrinho de quem disse "alergia a
+  //    lactose" — o congelamento garante que isso nunca mais acontece.
+  if (contemAlgum(mensagem, SEGURANCA)) {
+    return { escalar: true, motivo: 'seguranca', mensagem: null, congelarPedido: true };
+  }
+
+  // 2a. Pedido explícito de humano.
+  if (contemAlgum(mensagem, PEDIDOS_DE_HUMANO)) {
+    return { escalar: true, motivo: 'pedido_explicito', mensagem: null };
+  }
+
+  // 2b. Assunto sensível ou cliente já alterado.
+  if (contemAlgum(mensagem, ASSUNTOS_SENSIVEIS) || contemAlgum(mensagem, PALAVROES)) {
+    return { escalar: true, motivo: 'assunto_sensivel', mensagem: null };
+  }
+
+  // 3. Robô travado: no segundo "não entendi" seguido, um humano assume.
+  if (tentativasSemEntender >= 2) {
+    return { escalar: true, motivo: 'agente_travado', mensagem: null };
+  }
 
   return { escalar: false, motivo: null, mensagem: null };
 }
 
-/** Texto padrão mostrado ao cliente quando a conversa é escalada. */
+/** Texto mostrado ao cliente quando a conversa é escalada. */
 export function mensagemDeEscalonamento(motivo, dentroDoHorario) {
   const base = {
-    pedido_explicito: 'Claro! Já estou chamando um atendente.',
-    assunto_sensivel: 'Entendi, e isso precisa de um atendente de verdade. Já estou passando.',
-    agente_travado: 'Desculpa, acho que não estou te ajudando direito. Vou chamar alguém da equipe.',
-  }[motivo] ?? 'Vou chamar um atendente para te ajudar.';
+    pedido_explicito: 'Claro! Já estou chamando alguém da equipe pra assumir aqui. 🙋',
+    assunto_sensivel: 'Poxa, sinto muito por isso. Esse caso precisa de uma pessoa da equipe mesmo — já estou passando a conversa, com prioridade.',
+    agente_travado: 'Acho que eu não estou conseguindo te ajudar direito, e você não merece ficar preso comigo. Vou chamar alguém da equipe. 🙏',
+    seguranca: 'Entendi — alergia é coisa séria e eu não vou arriscar um chute. Já estou passando pra alguém da cozinha confirmar cada ingrediente com você. Enquanto isso, seguro seu pedido aqui sem mudar nada.',
+  }[motivo] ?? 'Vou chamar um atendente pra te ajudar.';
 
   const prazo = dentroDoHorario
-    ? 'Em instantes alguém assume aqui na conversa.'
-    : 'Estamos fechados agora — assim que abrirmos, alguém te responde por aqui.';
+    ? 'Em instantes alguém assume esta conversa.'
+    : 'Estamos fechados agora — assim que abrirmos, alguém te responde por aqui. Sua mensagem já está registrada como prioridade.';
 
   return `${base}\n\n${prazo}`;
 }

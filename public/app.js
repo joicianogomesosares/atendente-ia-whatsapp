@@ -127,8 +127,14 @@ el('btnReiniciar').addEventListener('click', async () => {
     el('statusLinha').textContent = config.aberto ? 'online' : 'responde automaticamente';
 
     const selo = el('seloModo');
-    selo.textContent = config.modo === 'ia' ? 'IA ATIVA' : 'MODO MOCK';
-    selo.classList.toggle('mock', config.modo !== 'ia');
+    const treinadas = config.cerebro?.situacoesTreino;
+    selo.textContent = treinadas
+      ? `CÉREBRO LOCAL · ${Math.round(treinadas / 1000)} mil situações`
+      : 'CÉREBRO LOCAL';
+    selo.classList.remove('mock');
+    selo.title = config.cerebro
+      ? `Treinado com ${treinadas.toLocaleString('pt-BR')} situações geradas de um espaço de ${config.cerebro.espacoCombinatorio.toLocaleString('pt-BR')} combinações. Sem API.`
+      : '';
   } catch {
     el('nomeEstabelecimento').textContent = 'Servidor offline';
   }

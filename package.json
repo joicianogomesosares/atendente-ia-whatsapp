@@ -1,16 +1,15 @@
 {
   "name": "atendente-ia-whatsapp",
   "version": "1.0.0",
-  "description": "Atendente virtual com IA para WhatsApp — demonstração para restaurantes",
+  "description": "Atendente virtual para WhatsApp com cérebro 100% local — sem API, treinado em situações geradas",
   "main": "server.js",
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "treinar": "node scripts/treinar.js"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.65.0",
-    "dotenv": "^16.4.5",
     "express": "^4.21.2"
   }
 }

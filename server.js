@@ -1,13 +1,13 @@
-import 'dotenv/config';
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { responder, modoAtual } from './src/agente.js';
+import { responder, modoAtual, inicializar, obterEstatisticas, reiniciarSessao } from './src/agente.js';
 import { ESTABELECIMENTO } from './src/cardapio.js';
 import {
   obterPedido, adicionarItem, removerItem, definirModalidade, definirPagamento,
   resumoPedido, finalizarPedido, pendencias, calcularTotais, reiniciar,
+  definirQuantidade, limparItens, adicionarObservacao, congelarPedido,
 } from './src/pedido.js';
 import { avaliarEscalonamento, mensagemDeEscalonamento } from './src/escalonamento.js';
 
@@ -44,10 +44,23 @@ function aplicarAcoes(sessaoId, acoes = []) {
         break;
       }
       case 'remover': {
-        const r = removerItem(sessaoId, acao.item);
+        const r = removerItem(sessaoId, acao.item, acao.quantidade ?? null);
         efeitos.push(r.ok ? `- ${r.item}` : `! ${r.motivo}`);
         break;
       }
+      case 'definir_qtd': {
+        const r = definirQuantidade(sessaoId, acao.item, acao.quantidade);
+        efeitos.push(r.ok ? `= ${r.quantidade}x ${r.item}` : `! ${r.motivo}`);
+        break;
+      }
+      case 'limpar':
+        limparItens(sessaoId);
+        efeitos.push('limpar');
+        break;
+      case 'observacao':
+        adicionarObservacao(sessaoId, acao.texto);
+        efeitos.push(`obs: ${acao.texto}`);
+        break;
       case 'modalidade':
         definirModalidade(sessaoId, acao.valor, acao.endereco ?? null);
         efeitos.push(`modalidade: ${acao.valor}`);
@@ -72,6 +85,7 @@ app.get('/api/config', (_req, res) => {
   res.json({
     estabelecimento: ESTABELECIMENTO,
     modo: modoAtual,
+    cerebro: obterEstatisticas(),
     aberto: dentroDoHorario(),
   });
 });
@@ -98,6 +112,11 @@ app.post('/api/mensagem', async (req, res) => {
     });
 
     if (decisao.escalar) {
+      // Segurança (alergia, passou mal): congela o pedido — nenhuma mutação
+      // até um humano assumir. É o que impede o bug histórico de adicionar
+      // o alérgeno ao carrinho de quem acabou de relatar alergia.
+      if (decisao.congelarPedido) congelarPedido(sessaoId);
+
       const msg = decisao.mensagem ?? mensagemDeEscalonamento(decisao.motivo, aberto);
       historico.push({ autor: 'agente', texto: msg });
       semEntender.set(sessaoId, 0);
@@ -105,6 +124,18 @@ app.post('/api/mensagem', async (req, res) => {
         resposta: msg,
         escalado: true,
         motivo: decisao.motivo,
+        pedido: estadoPublico(sessaoId),
+      });
+    }
+
+    // Pedido congelado por segurança: não mexe em nada até o humano assumir.
+    if (pedido.congelado) {
+      const msg = 'Seu caso está com a equipe (por causa da alergia, não mexo em nada por aqui). Já já alguém te responde! 🙏';
+      historico.push({ autor: 'agente', texto: msg });
+      return res.json({
+        resposta: msg,
+        escalado: true,
+        motivo: 'seguranca',
         pedido: estadoPublico(sessaoId),
       });
     }
@@ -128,7 +159,8 @@ app.post('/api/mensagem', async (req, res) => {
         ? `${r.resumo}\n\nPedido ${r.pedido.numero} confirmado! ✅`
         : `Quase lá! Só falta: ${r.faltando.join(', ')}.`;
     } else if (efeitos.includes('resumo')) {
-      resposta = `${resposta}\n\n${resumoPedido(obterPedido(sessaoId))}`;
+      const resumo = resumoPedido(obterPedido(sessaoId));
+      resposta = resposta ? `${resposta}\n\n${resumo}` : resumo;
     }
 
     historico.push({ autor: 'agente', texto: resposta });
@@ -150,6 +182,7 @@ app.post('/api/reiniciar', (req, res) => {
   conversas.delete(sessaoId);
   semEntender.delete(sessaoId);
   reiniciar(sessaoId);
+  reiniciarSessao(sessaoId);
   res.json({ ok: true });
 });
 
@@ -167,8 +200,16 @@ function estadoPublico(sessaoId) {
 }
 
 const PORTA = process.env.PORT || 3000;
+
+// Treina o cérebro local ANTES de aceitar conexões: a primeira mensagem do
+// cliente não pode pagar o custo do treino.
+const stats = inicializar();
+
 app.listen(PORTA, () => {
   console.log(`\n  ${ESTABELECIMENTO.nome} — atendente virtual`);
   console.log(`  http://localhost:${PORTA}`);
-  console.log(`  modo: ${modoAtual === 'ia' ? 'IA (Claude)' : 'MOCK (sem chave de API)'}\n`);
+  console.log(`  modo: cérebro local (sem API)`);
+  console.log(`  espaço de situações: ${stats.espacoCombinatorio.toLocaleString('pt-BR')} combinações possíveis`);
+  console.log(`  treinado com: ${stats.situacoesTreino.toLocaleString('pt-BR')} situações (${stats.tempoMs}ms)`);
+  console.log(`  acurácia held-out: ${(stats.acuraciaHeldOut * 100).toFixed(1)}% em ${stats.situacoesTeste} frases nunca vistas\n`);
 });
