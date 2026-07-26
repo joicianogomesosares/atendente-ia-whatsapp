@@ -136,12 +136,14 @@ export function extrairOperacoes(texto, { itensNoCarrinho = [] } = {}) {
 
   const textoPrep = preparar(texto);
 
-  // Pergunta de PREÇO não é pedido. "quanto é a taça de vinho?" cita o item
-  // mas não quer adicioná-lo — só saber o valor. Sem esta trava, toda pergunta
-  // de preço enchia o carrinho. Só vale quando não há verbo de pedido junto.
-  const ehPerguntaPreco = /\b(quanto|qto|qual o valor|qual valor|qual o preco|qual preco|quanto custa|quanto e|quanto fica|preco)\b/.test(textoPrep);
-  const temVerboPedido = /\b(quero|queria|manda|me ve|me da|poe|bota|coloca|adiciona|traz|vou querer|vou de|pode ser|inclui)\b/.test(textoPrep);
-  const soConsulta = ehPerguntaPreco && !temVerboPedido;
+  // Pergunta/consulta NÃO é pedido. "o vinho é caro?" e "tem tiramisù?" citam o
+  // item mas não querem adicioná-lo — só saber. Sem esta trava, toda pergunta
+  // enchia o carrinho. A regra: se há verbo de pedido explícito, é pedido; se
+  // não há e a frase é interrogativa (ou fala de preço), é consulta.
+  const temVerboPedido = /\b(quero|queria|manda|me ve|me da|poe|poem|bota|coloca|adiciona|adiciona ai|traz|vou querer|vou de|pode ser|inclui|adicione|manda ver|me manda)\b/.test(textoPrep);
+  const ehPerguntaPreco = /\b(quanto|qto|qual o valor|qual valor|qual o preco|qual preco|quanto custa|quanto e|quanto fica|quanto sai|sai por quanto|vale quanto|e caro|e barato|ta caro|custa|preco)\b/.test(textoPrep);
+  const ehInterrogativa = /[?]/.test(texto) || /\b(tem|voces tem|vcs tem|fazem|da pra|tem como)\b/.test(textoPrep);
+  const soConsulta = !temVerboPedido && (ehPerguntaPreco || ehInterrogativa);
 
   // "cancela tudo" / "comeca do zero" — limpa sem precisar de item.
   const temVerboLimpar = VERBOS_REMOVER.some((v) => textoPrep.includes(v))
@@ -163,6 +165,13 @@ export function extrairOperacoes(texto, { itensNoCarrinho = [] } = {}) {
 
   const spans = encontrarItens(tokens);
   const usadosPorItem = new Set();
+
+  // Consulta de preço/disponibilidade que cita itens específicos: devolve os
+  // itens para o gerenciador informar o preço — sem adicionar nada ao carrinho.
+  if (soConsulta) {
+    const itensCitados = spans.filter((s) => s.id !== null).map((s) => s.id);
+    return { operacoes: [], observacoes, ambiguidades: [], consultaItens: itensCitados };
+  }
 
   // "queijo" também é ingrediente; se casou como observação, não vira item.
   const spansValidos = spans.filter((s) => {
@@ -214,7 +223,14 @@ export function extrairOperacoes(texto, { itensNoCarrinho = [] } = {}) {
     }
   }
 
-  return { operacoes, observacoes, ambiguidades };
+  return { operacoes, observacoes, ambiguidades, consultaItens: [] };
+}
+
+/** Preço de um item, formatado em reais com vírgula. */
+export function precoDoItem(id) {
+  const item = CARDAPIO.find((i) => i.id === id);
+  if (!item) return null;
+  return { nome: item.nome, preco: item.preco, texto: `R$ ${item.preco.toFixed(2).replace('.', ',')}` };
 }
 
 /** Endereço: rua/av + número, ou frase introduzida por "endereço é". */

@@ -8,7 +8,7 @@
 import { classificar } from '../nlu/classificador.js';
 import { preparar } from '../nlu/normalizador.js';
 import {
-  extrairOperacoes, extrairEndereco, extrairPagamento, nomeDoItem,
+  extrairOperacoes, extrairEndereco, extrairPagamento, nomeDoItem, precoDoItem,
 } from '../nlu/extrator.js';
 import { variar, FAQS } from './respostas.js';
 import { cardapioEmTexto } from '../cardapio.js';
@@ -79,8 +79,22 @@ export function conduzir({ sessaoId, texto, modelo, pedido }) {
   const corpo = saudacao ? resto : textoPrep;
 
   // ---- 2. Operações de carrinho (verbo antes do produto)
-  const { operacoes, observacoes, ambiguidades } =
+  const { operacoes, observacoes, ambiguidades, consultaItens = [] } =
     extrairOperacoes(corpo, { itensNoCarrinho: idsNoCarrinho });
+
+  // Consulta de preço de item específico ("quanto custa o tiramisù?"): responde
+  // o preço direto, antes de qualquer classificação de intenção. Sem isto, caía
+  // no FAQ de taxa de entrega porque "quanto custa" batia lá.
+  if (consultaItens.length && /\b(quanto|qto|preco|custa|caro|barato|vale|sai por)\b/.test(corpo)) {
+    const precos = consultaItens
+      .map((id) => precoDoItem(id))
+      .filter(Boolean)
+      .map((p) => `${p.nome} sai ${p.texto}`);
+    if (precos.length) {
+      partes.push(precos.join('. ') + '. Quer que eu já anote?');
+      return montarSaida(partes, acoes, false);
+    }
+  }
 
   const adicionados = [];
   const removidos = [];
@@ -133,6 +147,12 @@ export function conduzir({ sessaoId, texto, modelo, pedido }) {
     partes.push(variar(sessaoId, 'ambiguidade_pizza', { opcoes }));
   }
 
+  // ---- 2b. Comandos de ESTADO podem vir vários numa frase só.
+  //          "retirada msm, pago no pix, fecha aí" traz modalidade + pagamento
+  //          + finalizar de uma vez. O classificador só devolve UMA intenção,
+  //          então detectamos os três por regex e aplicamos TODOS os presentes.
+  const mexeuNoEstado = aplicarComandosDeEstado({ corpo, texto, sessaoId, pedido, acoes, partes });
+
   const mexeuNoCarrinho = operacoes.length > 0 || observacoes.length > 0 || ambiguidades.length > 0;
 
   // ---- 3. Intenção da parte "conversacional"
@@ -150,7 +170,13 @@ export function conduzir({ sessaoId, texto, modelo, pedido }) {
   const intencaoConfiavel = confianca >= 0.12
     || (intencao && !INTENCOES_DE_ESTADO.has(intencao) && confianca >= 0.06);
 
-  if (!mexeuNoCarrinho || (intencaoConfiavel && !['pedir_item', 'remover_item'].includes(intencao))) {
+  // Comandos de estado já tratados por regex não devem ser retratados pela
+  // intenção única (evita resposta dupla de modalidade/pagamento).
+  const INTENCOES_JA_TRATADAS = new Set(['escolher_entrega', 'escolher_retirada', 'escolher_pagamento', 'finalizar']);
+  const intencaoRedundante = mexeuNoEstado && INTENCOES_JA_TRATADAS.has(intencao);
+
+  if (!intencaoRedundante
+      && (!mexeuNoCarrinho || (intencaoConfiavel && !['pedir_item', 'remover_item'].includes(intencao)))) {
     tratarIntencao({ intencao, intencaoConfiavel, sessaoId, memoria, pedido, acoes, partes, texto, corpo });
   }
 
@@ -188,6 +214,50 @@ export function conduzir({ sessaoId, texto, modelo, pedido }) {
 
   memoria.fallbacksSeguidos = 0;
   return montarSaida(partes, acoes, false);
+}
+
+/**
+ * Detecta e aplica TODOS os comandos de estado presentes numa mensagem, de uma
+ * vez: modalidade (entrega/retirada), pagamento (pix/cartão/dinheiro) e
+ * finalizar. Retorna true se aplicou algum. É o que faz "retirada, pago no pix,
+ * fecha aí" funcionar numa frase só, em vez de exigir três mensagens.
+ */
+function aplicarComandosDeEstado({ corpo, texto, sessaoId, pedido, acoes, partes }) {
+  if (!corpo) return false;
+  let aplicou = false;
+
+  // Modalidade — só quando é DECISÃO ("é retirada"), não pergunta ("quanto é a
+  // taxa de entrega?"). A presença de "?" ou "quanto/qual" indica pergunta.
+  const ehPerguntaEntrega = /[?]/.test(texto) || /\b(quanto|qual|taxa|quanto custa)\b/.test(corpo);
+  if (!pedido.modalidade) {
+    if (/\b(retirada|retirar|buscar|balcao|vou buscar|vou pegar|pego ai|retiro)\b/.test(corpo)) {
+      acoes.push({ tipo: 'modalidade', valor: 'retirada' });
+      partes.push(variar(sessaoId, 'retirada_escolhida'));
+      aplicou = true;
+    } else if (!ehPerguntaEntrega && /\b(entrega|entregar|delivery|em casa|na minha casa|traz aqui|manda aqui)\b/.test(corpo)) {
+      acoes.push({ tipo: 'modalidade', valor: 'entrega' });
+      partes.push(variar(sessaoId, 'entrega_escolhida'));
+      aplicou = true;
+    }
+  }
+
+  // Pagamento
+  if (!pedido.pagamento) {
+    const forma = extrairPagamento(texto);
+    if (forma && /\b(pago|pagar|paga|vou de|no|em|com|fica|prefiro)\b/.test(corpo)) {
+      acoes.push({ tipo: 'pagamento', valor: forma });
+      partes.push(variar(sessaoId, 'pagamento_anotado', { forma }));
+      aplicou = true;
+    }
+  }
+
+  // Finalizar
+  if (/\b(fecha|fechar|finaliza|finalizar|pode fechar|pode mandar|manda ver|conclui|confirma o pedido|ta fechado|fechou)\b/.test(corpo)) {
+    acoes.push({ tipo: 'finalizar' });
+    aplicou = true;
+  }
+
+  return aplicou;
 }
 
 function tratarIntencao({ intencao, intencaoConfiavel, sessaoId, memoria, pedido, acoes, partes, texto, corpo }) {
